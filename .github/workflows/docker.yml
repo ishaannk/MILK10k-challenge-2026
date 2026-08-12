@@ -110,31 +110,39 @@ jobs:
         run: |
           IMAGE=$(echo "${{ steps.tags.outputs.tags }}" | cut -d, -f1)
           mkdir -p /tmp/images/IL_0000001 /tmp/images/IL_0000002
-          python -c "
-          import numpy as np, pathlib
-          try:
-              import cv2
-          except ImportError:
-              import subprocess, sys
-              subprocess.check_call([sys.executable,'-m','pip','install','-q','opencv-python-headless'])
-              import cv2
+
+          # Build the fixture JPEGs with the image's OWN python, not the runner's.
+          # The runner's interpreter has neither numpy nor cv2, and installing them
+          # here just to fabricate test data adds a failure mode unrelated to the
+          # thing under test.
+          docker run --rm --entrypoint python -v /tmp/images:/images "$IMAGE" -c "
+          import numpy as np, cv2, pathlib
           rng = np.random.default_rng(0)
-          for d in sorted(pathlib.Path('/tmp/images').iterdir()):
-              for n in ('ISIC_0000001','ISIC_0000002'):
-                  cv2.imwrite(str(d / f'{n}.jpg'), rng.integers(0,255,(450,600,3),dtype=np.uint8))
+          for d in sorted(pathlib.Path('/images').iterdir()):
+              for n in ('ISIC_0000001', 'ISIC_0000002'):
+                  cv2.imwrite(str(d / f'{n}.jpg'), rng.integers(0, 255, (450, 600, 3), dtype=np.uint8))
+          print('fixtures written', flush=True)
           "
+
           docker run --rm -v /tmp/images:/images "$IMAGE" > /tmp/out.csv
           echo "--- stdout ---"; cat /tmp/out.csv
+
+          # Validate with the runner's plain python: csv is stdlib, so this step has
+          # no third-party dependencies at all.
           python - <<'PY'
           import csv
           EXPECT = ["image","AKIEC","BCC","BEN_OTH","BKL","DF","INF","MAL_OTH","MEL","NV","SCCKA","VASC"]
           rows = list(csv.reader(open('/tmp/out.csv')))
+          assert rows, "no output on stdout"
           assert rows[0] == EXPECT, f"bad header: {rows[0]}"
-          assert len(rows) == 3, f"expected 2 lesion rows, got {len(rows)-1}"
+          assert len(rows) == 3, f"expected 2 lesion rows, got {len(rows) - 1}"
           for r in rows[1:]:
               vals = [float(v) for v in r[1:]]
-              assert len(vals) == 11 and all(0.0 <= v <= 1.0 for v in vals), r
-          print("smoke test OK: header, 2 lesion rows, 11 probabilities in [0,1]")
+              assert len(vals) == 11, f"expected 11 scores, got {len(vals)}: {r}"
+              assert all(0.0 <= v <= 1.0 for v in vals), f"score out of [0,1]: {r}"
+          ids = [r[0] for r in rows[1:]]
+          assert ids == ["IL_0000001", "IL_0000002"], f"lesion grouping wrong: {ids}"
+          print("smoke test OK: header, 2 lesion rows, 11 probabilities in [0,1], correct lesion ids")
           PY
 
       - name: Summary
