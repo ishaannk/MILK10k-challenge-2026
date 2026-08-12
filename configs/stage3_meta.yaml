@@ -1,0 +1,42 @@
+# =============================================================================
+# Stage 3 - Dual encoder + metadata MLP fused before the classification head.
+#
+# Adds age, sex, anatomical site, skin tone and the MONET concept scores through a
+# small MLP, fused as a third stream alongside the two image towers. Site and age
+# carry real diagnostic prior (BCC and AKIEC concentrate on head/neck in older
+# patients; NV skews young and truncal), and the MONET annotations are available
+# for the test set too, so none of this is leakage.
+#
+# `attention` fusion is used here rather than `gated`: with three streams of very
+# different reliability, letting them attend to one another beats a fixed convex
+# mixture, and the [CLS] readout scales to further streams without redesign.
+#
+#   python scripts/train.py --config configs/stage3_meta.yaml --fold 0
+# =============================================================================
+defaults: base.yaml
+
+experiment_name: stage3_dual_meta_convnext_tiny
+
+data:
+  mode: both
+  image_size: 288
+  use_monet: true
+  use_manipulation: true
+
+model:
+  backbone: convnext_tiny.fb_in22k_ft_in1k
+  use_clinical: true
+  use_metadata: true
+  fusion: attention
+  fusion_dim: 512
+  # Deliberately small: ~36 tabular features against 5,240 lesions memorises fast.
+  meta_hidden: [128, 128]
+  meta_embed_dim: 128
+  meta_dropout: 0.3
+  share_encoder: false
+  drop_path_rate: 0.2
+
+train:
+  epochs: 30                   # three streams take slightly longer to settle
+  batch_size: 24
+  eval_batch_size: 48

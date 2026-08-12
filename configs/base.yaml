@@ -1,0 +1,164 @@
+# =============================================================================
+# Base configuration for the ISIC MILK10k challenge.
+#
+# Every experiment config inherits from this file via `defaults: base.yaml` and
+# overrides only what it changes, so a diff between two configs is a diff between
+# two experiments. Anything here can also be overridden on the command line:
+#
+#     python scripts/train.py --config configs/stage1_derm.yaml \
+#         --set train.epochs=40 model.backbone=convnext_small.fb_in22k_ft_in1k
+# =============================================================================
+
+seed: 42
+device: cuda
+num_classes: 11
+
+# Deterministic cuDNN algorithms; costs a little throughput but makes A/B
+# comparisons between stages trustworthy. `strict_determinism` additionally
+# enables torch.use_deterministic_algorithms and is off because a few
+# interpolation kernels have no deterministic implementation.
+deterministic: true
+strict_determinism: false
+
+paths:
+  processed_dir: data/processed
+  output_dir: outputs
+  checkpoint_dir: checkpoints
+  log_dir: logs
+
+data:
+  # If the dataset lives on a network mount, stage it on local disk first and point
+  # these at the copy -- measured 203 -> 501 images/s per worker on this box, and the
+  # images are only ~360 MB:
+  #   mkdir -p /opt/milk_data && cp -r data/raw/MILK10k_*_Input /opt/milk_data/
+  #   --set data.train_image_root=/opt/milk_data/MILK10k_Training_Input \
+  #         data.test_image_root=/opt/milk_data/MILK10k_Test_Input
+  train_image_root: data/raw/MILK10k_Training_Input
+  test_image_root: data/raw/MILK10k_Test_Input
+  train_metadata: data/raw/MILK10k_Training_Metadata.csv
+  train_ground_truth: data/raw/MILK10k_Training_GroundTruth.csv
+  test_metadata: data/raw/MILK10k_Test_Metadata.csv
+  folds_csv: data/processed/folds.csv
+  n_folds: 5
+
+  # Which images each item loads: dermoscopic | clinical | both
+  mode: dermoscopic
+  # Source images are 600x450. 288 keeps epochs short for iteration; 384 is the
+  # setting to move to once a configuration is chosen.
+  image_size: 288
+  center_crop_pct: 1.0
+
+  # MONET concept annotations are present in the test metadata too, so they are
+  # legitimate inputs rather than leakage.
+  use_monet: true
+  use_manipulation: true
+
+loader:
+  # Augmentation, not JPEG decode, is the per-sample cost that matters here, so this
+  # is the main throughput dial. At 8 workers GPU utilisation sat around 32% on a
+  # 48-core box -- clearly CPU-starved. Raise it until the GPU saturates; the dual-
+  # encoder stages need roughly twice as many workers as Stage 1 for the same rate,
+  # since they decode and augment two images per lesion.
+  num_workers: 16
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 4
+  drop_last: true
+
+model:
+  backbone: convnext_tiny.fb_in22k_ft_in1k
+  clinical_backbone: null      # defaults to `backbone`
+  pretrained: true             # essential: 5,240 lesions is far too few from scratch
+  use_clinical: false
+  use_metadata: false
+  fusion: concat               # concat | gated | attention
+  fusion_dim: 512
+  meta_hidden: [128, 128]
+  meta_embed_dim: 128
+  meta_dropout: 0.3
+  head_hidden: 0               # 0 = linear head on fused features
+  head_dropout: 0.3
+  drop_rate: 0.0
+  drop_path_rate: 0.2          # stochastic depth: the most reliable regulariser here
+  share_encoder: false
+  grad_checkpointing: false
+
+loss:
+  name: bce                    # bce | focal
+  # Damped inverse-frequency positive weighting. Full `balanced` weighting would
+  # give MAL_OTH (9 lesions) a weight near 580 and wreck training.
+  pos_weight: sqrt_inverse
+  pos_weight_power: 0.5
+  pos_weight_clip: 20.0
+  label_smoothing: 0.02        # keeps logits bounded, which helps calibration
+
+optim:
+  name: adamw
+  backbone_lr: 1.0e-4          # small: refine transferred features, do not erase them
+  head_lr: 1.0e-3              # 10x: the head and fusion start from random init
+  weight_decay: 0.05
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+
+scheduler:
+  name: cosine                 # cosine | cosine_restarts | plateau | none
+  warmup_epochs: 1.0
+  min_lr_ratio: 0.01
+
+train:
+  epochs: 25
+  batch_size: 32
+  eval_batch_size: 64
+  accum_steps: 1
+  amp: bf16                    # bf16 | fp16 | false
+  channels_last: true
+  grad_clip: 1.0
+  ema: true
+  ema_decay: 0.999
+  ema_warmup: 100
+
+  # Model selection uses the tuned macro-F1, not the raw 0.5-threshold score:
+  # we ship tuned thresholds, so that is the metric that reflects final quality.
+  monitor: macro_f1_tuned
+  monitor_mode: max
+  patience: 8
+  min_delta: 0.0001
+  log_every: 40
+
+  # Class-rebalanced sampling. power=0 is the natural prior, 1 is fully balanced;
+  # 0.5 lifts the rare classes (which carry 45% of macro-F1) without letting nine
+  # MAL_OTH lesions be seen hundreds of times per epoch.
+  sampler: balanced            # balanced | none
+  sampler_power: 0.5
+
+augment:
+  strength: 1.0
+  scale: [0.7, 1.0]
+  ratio: [0.8, 1.25]
+  coarse_dropout: true
+  mixup_alpha: 0.4
+  cutmix_alpha: 0.0
+  mix_prob: 0.5
+  mix_off_last_epochs: 3       # finish on clean targets so probabilities calibrate
+
+threshold:
+  plateau_tolerance: 0.01      # accept thresholds within 1% of the best F1
+  min: 0.02                    # floor stops degenerate "predict-everything" solutions
+  max: 0.95
+  # Cap predicted positives at this multiple of a class's support. The main guard
+  # against threshold overfitting: without it a class with 2 validation positives
+  # can "win" by predicting 111 of 1,048 lesions, which is noise-fitting that also
+  # pollutes every other class's precision.
+  max_predict_multiple: 4.0
+
+inference:
+  tta: d4                      # none | hflip | flips | d4
+  tta_average: logit           # averaging logits preserves confident tails
+  strategy: tuned_or_argmax    # raw | argmax | tuned | tuned_or_argmax
+  ensemble_method: mean        # mean | gmean | rank
+
+logging:
+  tensorboard: true
+  wandb: false
+  wandb_project: milk10k
+  wandb_entity: null

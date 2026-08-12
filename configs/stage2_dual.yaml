@@ -1,0 +1,38 @@
+# =============================================================================
+# Stage 2 - Dual encoder: clinical close-up + dermoscopy, with feature fusion.
+#
+# Two independent towers (no weight sharing) whose pooled features are fused
+# before the head. The modalities have genuinely different low-level statistics --
+# contact dermoscopy through an instrument vs. a handheld clinical photograph --
+# so separate weights are the right default; `model.share_encoder: true` is the
+# cheap ablation if this overfits.
+#
+# Cost note: two towers roughly double both step time and activation memory, so
+# batch size drops from 32 to 24 at the same image size.
+#
+#   python scripts/train.py --config configs/stage2_dual.yaml --fold 0
+# =============================================================================
+defaults: base.yaml
+
+experiment_name: stage2_dual_convnext_tiny
+
+data:
+  mode: both                   # load both images per lesion
+  image_size: 288
+
+model:
+  backbone: convnext_tiny.fb_in22k_ft_in1k
+  use_clinical: true
+  use_metadata: false
+  # `gated` lets the network decide per lesion which modality to trust: dermoscopy
+  # dominates for pigmented lesions, clinical photos carry more signal for large,
+  # ulcerated or inflammatory presentations. `concat` is the simpler baseline.
+  fusion: gated
+  fusion_dim: 512
+  share_encoder: false
+  drop_path_rate: 0.2
+
+train:
+  epochs: 25
+  batch_size: 24               # two towers -> less headroom
+  eval_batch_size: 48

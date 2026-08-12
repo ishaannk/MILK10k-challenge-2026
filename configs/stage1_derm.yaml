@@ -1,0 +1,27 @@
+# =============================================================================
+# Stage 1 - Dermoscopy-only baseline, ConvNeXt Tiny.
+#
+# The reference point every later stage is measured against. Dermoscopy alone is
+# the strongest single modality for lesion diagnosis, so this is the honest
+# baseline rather than a throwaway: if the dual-encoder in Stage 2 does not beat
+# this, the extra tower is not paying for itself.
+#
+#   python scripts/train.py --config configs/stage1_derm.yaml --fold 0
+# =============================================================================
+defaults: base.yaml
+
+experiment_name: stage1_derm_convnext_tiny
+
+data:
+  mode: dermoscopic
+  image_size: 288
+
+model:
+  backbone: convnext_tiny.fb_in22k_ft_in1k
+  use_clinical: false
+  use_metadata: false
+  drop_path_rate: 0.2
+
+train:
+  epochs: 25
+  batch_size: 32

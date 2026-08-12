@@ -1,0 +1,27 @@
+# Data (CC-BY-NC, not redistributable — fetch with scripts/download_data.sh)
+data/raw/
+data/processed/
+
+# Training artefacts: checkpoints are ~425-886 MB each, far past GitHub's limits.
+# Rebuild with scripts/train.py, or produce a slim bundle via scripts/export_weights.py.
+checkpoints/
+weights_bundle/
+logs/
+
+# Predictions and intermediates. The submitted CSV is force-added; see below.
+outputs/*
+!outputs/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+.local_scratch/
