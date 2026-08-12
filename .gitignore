@@ -5,8 +5,13 @@ data/processed/
 # Training artefacts: checkpoints are ~425-886 MB each, far past GitHub's limits.
 # Rebuild with scripts/train.py, or produce a slim bundle via scripts/export_weights.py.
 checkpoints/
-weights_bundle/
 logs/
+
+# Model weights are distributed as a GitHub release asset (822 MB), but the tiny
+# manifest — which encodes the blend recipe and thresholds — is version controlled so
+# the container's behaviour is reviewable and cannot silently drift from the weights.
+weights_bundle/*
+!weights_bundle/manifest.json
 
 # Predictions and intermediates. The submitted CSV is force-added; see below.
 outputs/*

@@ -26,11 +26,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /opt/algorithm
 
 # CPU-only torch wheels: the default CUDA build would add several GB for nothing.
+# pandas is required transitively: src/datasets/metadata.py imports it at module
+# level, and algorithm.py reaches it through src.inference.predictor. Omitting it made
+# the container fail at import time — caught by the CI smoke test, not by the grader.
 RUN pip install --no-cache-dir \
         torch==2.11.0 torchvision --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir \
         timm==1.0.28 \
         numpy \
+        pandas \
         opencv-python-headless \
         scikit-learn \
         scipy \

@@ -50,9 +50,28 @@ jobs:
         run: |
           gh release download "$WEIGHTS_TAG" --repo "$GITHUB_REPOSITORY" \
             --pattern 'weights_bundle.tar.gz' --dir .
+          # The release tarball also contains a manifest.json, but the repository's
+          # copy is authoritative: it encodes the blend recipe and thresholds, which
+          # are reviewed in code review and change far more often than the weights.
+          # Restoring it here means the recipe can be corrected without re-uploading
+          # 758 MB of unchanged .pt files.
+          cp weights_bundle/manifest.json /tmp/manifest.repo.json
           tar -xzf weights_bundle.tar.gz
           rm weights_bundle.tar.gz
+          cp /tmp/manifest.repo.json weights_bundle/manifest.json
+
           test -f weights_bundle/manifest.json || { echo "manifest.json missing"; exit 1; }
+          python -c "
+          import json
+          m = json.load(open('weights_bundle/manifest.json'))
+          missing = [f for r in m['runs'] for f in r['folds']
+                     if not __import__('os').path.exists('weights_bundle/' + f)]
+          assert not missing, f'manifest references absent weight files: {missing}'
+          b = m['blend']
+          assert b['method'] == 'mean', f\"expected mean blending, got {b['method']!r}\"
+          print(f\"manifest OK: {sum(len(r['folds']) for r in m['runs'])} weights, \"
+                f\"blend={b['method']}, strategy={b['strategy']}\")
+          "
           echo "weights: $(du -sh weights_bundle | cut -f1), $(ls weights_bundle/*.pt | wc -l) file(s)"
 
       - uses: docker/setup-buildx-action@v3

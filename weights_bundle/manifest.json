@@ -1,0 +1,102 @@
+{
+  "classes": [
+    "AKIEC",
+    "BCC",
+    "BEN_OTH",
+    "BKL",
+    "DF",
+    "INF",
+    "MAL_OTH",
+    "MEL",
+    "NV",
+    "SCCKA",
+    "VASC"
+  ],
+  "runs": [
+    {
+      "name": "stage1_derm_cv",
+      "folds": [
+        "stage1_derm_cv_fold0.pt",
+        "stage1_derm_cv_fold1.pt",
+        "stage1_derm_cv_fold2.pt",
+        "stage1_derm_cv_fold3.pt",
+        "stage1_derm_cv_fold4.pt"
+      ],
+      "model": {
+        "backbone": "convnext_tiny.fb_in22k_ft_in1k",
+        "clinical_backbone": null,
+        "use_clinical": false,
+        "use_metadata": false,
+        "fusion": "concat",
+        "fusion_dim": 512,
+        "head_hidden": 0,
+        "head_dropout": 0.3,
+        "share_encoder": false,
+        "drop_rate": 0.0,
+        "drop_path_rate": 0.0,
+        "meta_hidden": [
+          128,
+          128
+        ],
+        "meta_embed_dim": 128
+      },
+      "image_size": 384,
+      "mode": "dermoscopic",
+      "tta": "d4"
+    },
+    {
+      "name": "stage2_dual_cv",
+      "folds": [
+        "stage2_dual_cv_fold0.pt",
+        "stage2_dual_cv_fold1.pt",
+        "stage2_dual_cv_fold2.pt",
+        "stage2_dual_cv_fold3.pt",
+        "stage2_dual_cv_fold4.pt"
+      ],
+      "model": {
+        "backbone": "convnext_tiny.fb_in22k_ft_in1k",
+        "clinical_backbone": null,
+        "use_clinical": true,
+        "use_metadata": false,
+        "fusion": "gated",
+        "fusion_dim": 512,
+        "head_hidden": 0,
+        "head_dropout": 0.3,
+        "share_encoder": false,
+        "drop_rate": 0.0,
+        "drop_path_rate": 0.0,
+        "meta_hidden": [
+          128,
+          128
+        ],
+        "meta_embed_dim": 128
+      },
+      "image_size": 384,
+      "mode": "both",
+      "tta": "d4"
+    }
+  ],
+  "blend": {
+    "method": "mean",
+    "weights": [
+      0.5,
+      0.5
+    ],
+    "per_class_weights": null,
+    "thresholds": [
+      0.7588419616222382,
+      0.41067542927339673,
+      0.3885271861217916,
+      0.41038295440375805,
+      0.7679086476564407,
+      0.4222770659253001,
+      0.24139752937480807,
+      0.6008875034749508,
+      0.5255162008106709,
+      0.7620855644345284,
+      0.941742479801178
+    ],
+    "strategy": "tuned",
+    "oof_macro_f1": 0.5800889006020284
+  }
+}
